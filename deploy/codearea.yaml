@@ -1,0 +1,62 @@
+# codearea 集群部署用配置(镜像构建时拷成 manifest/config/config.yaml)。
+# 前端静态页由本服务同源提供(serverRoot),入口前面是 CF Access + Authentik,所以关掉后端自带的 Bearer Token 鉴权。
+server:
+  address: ":8000"
+  serverRoot: "/app/public"
+  indexFiles: ["index.html"]
+  openapiPath: ""
+  swaggerPath: ""
+  clientMaxBodySize: 26214400
+  dumpRouterMap: false
+
+logger:
+  level: "info"
+  stdout: true
+
+llm:
+  models:
+    # 集群内 chatgpt2api(ai-services),key 来自 Secret nvzhuang-secrets 的 OPENAI_API_KEY
+    gpt-image:
+      provider: openai
+      envKey: "OPENAI_API_KEY"
+      baseURL: "http://chatgpt2api.ai-services.svc.cluster.local/v1"
+      model: "gpt-image-2"
+    # 以下两个服务端没配 key,要用就在网页「设置中心」填个人配置
+    doubao:
+      provider: doubao
+      envKey: "ARK_API_KEY"
+      baseURL: "https://ark.cn-beijing.volces.com/api/v3"
+      model: "doubao-seedream-3-0-t2i-250415"
+    gemini:
+      provider: gemini
+      envKey: "GEMINI_API_KEY"
+      baseURL: "https://generativelanguage.googleapis.com/v1beta"
+      model: "gemini-3.1-flash-image"
+
+security:
+  authRequired: false
+  apiKeysEnv: "TRYON_API_KEYS"
+  trustedOrigins:
+    - "https://tryon.codearea.cc"
+  allowPrivateNetwork: false
+  rateLimit:
+    requestsPerMinute: 10
+    burst: 3
+    limiterIdleMinutes: 30
+    dailyRequestsPerPrincipal: 50
+  concurrency:
+    # chatgpt2api 号池要串行出图
+    global: 1
+    perPrincipal: 1
+
+upload:
+  maxRequestBodyBytes: 25165824
+  maxEncodedImageBytes: 12582912
+  maxDecodedImageBytes: 8388608
+  maxCombinedDecodedBytes: 16777216
+  minWidth: 256
+  minHeight: 256
+  maxWidth: 8192
+  maxHeight: 8192
+  maxPixels: 20000000
+  allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"]

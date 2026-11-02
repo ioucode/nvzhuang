@@ -1,0 +1,64 @@
+# 集群里 fleet-nvzhuang 这个 SA 只能改这里的对象,ValidatingAdmissionPolicy 还限制了镜像、SA、可引用的 Secret/ConfigMap/卷和特权字段
+# (见 k8s-deploy cluster/helmops/nvzhuang.yaml),改 Pod 规格要同步改那边,否则 HelmOp 部署会被拒。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nvzhuang
+  namespace: apps
+  labels: {app: nvzhuang}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: {app: nvzhuang}
+  template:
+    metadata:
+      labels: {app: nvzhuang}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {kubernetes.io/hostname: arm}
+      imagePullSecrets: [{name: ghcr-pull-secret}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: nvzhuang
+          image: {{ .Values.image }}@{{ required "values.digest 为空" .Values.digest }}
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+            # 集群内 chatgpt2api 的用户 tryon
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef: {name: nvzhuang-secrets, key: OPENAI_API_KEY}
+          ports: [{name: http, containerPort: 8000}]
+          # 业务路由带限流(每分钟 10 次),探针别打 HTTP 接口
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nvzhuang
+  namespace: apps
+spec:
+  selector: {app: nvzhuang}
+  ports: [{name: http, port: 80, targetPort: http}]

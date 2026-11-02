@@ -1,0 +1,63 @@
+# codearea 部署:构建 arm64 镜像推 GHCR,再把钉了 digest 的 chart 推到 oci://ghcr.io/ioucode/charts/nvzhuang,
+# 集群里的 HelmOp(k8s-deploy cluster/helmops/nvzhuang.yaml)每分钟轮询取最新 semver 部署。CI 不持有 k8s-deploy 写权限。
+name: codearea
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: backend/go.sum
+      - name: Test
+        working-directory: backend
+        run: go test -count=1 ./...
+
+  image:
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        env:
+          # 默认会把构建记录传成 artifact,账户产物额度满会让整个 job 失败
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        id: build
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/ioucode/nvzhuang:${{ github.sha }}
+            ghcr.io/ioucode/nvzhuang:latest
+      - uses: azure/setup-helm@v4
+      - name: 打包 chart 推到 GHCR
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          # run_attempt 进版本号:同一个 run 重跑也会得到更大的版本,HelmOp 才会再部署一次
+          VERSION: 1.${{ github.run_number }}.${{ github.run_attempt }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sed -i -E "s#^digest:.*#digest: ${DIGEST}#" chart/nvzhuang/values.yaml
+          helm lint chart/nvzhuang
+          helm package chart/nvzhuang --version "$VERSION" --app-version "${GITHUB_SHA::7}" -d "$RUNNER_TEMP"
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push "$RUNNER_TEMP/nvzhuang-$VERSION.tgz" oci://ghcr.io/ioucode/charts

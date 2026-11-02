@@ -1,0 +1,6 @@
+apiVersion: v2
+name: nvzhuang
+description: tryon.codearea.cc(AI 女装图集 + 试穿)的工作负载(Deployment nvzhuang、Service nvzhuang)。其余对象(NetPol/HTTPRoute/证书/Secret)在 k8s-deploy 的 apps/nvzhuang 里由 GitRepo 管。
+type: application
+# 版本号由 CI 打包时覆盖为 1.<run_number>.<run_attempt>,集群里 HelmOp 按 semver 轮询取最新
+version: 0.0.0

@@ -1,0 +1,7 @@
+.git
+.github
+docs
+tests
+chart
+*.png
+!assets/**
